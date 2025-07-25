@@ -1,43 +1,83 @@
-// Importar los módulos necesarios
-const express = require('express'); // Framework para crear servidores web
-const mongoose = require('mongoose'); // Biblioteca para interactuar con MongoDB
-const bodyParser = require('body-parser'); // Middleware para manejar datos JSON en el cuerpo de las solicitudes
+// Importar módulos
+const express = require('express');
+const mongoose = require('mongoose');
+const bodyParser = require('body-parser');
+const cors = require('cors'); // importante para permitir conexiones desde ESP32
 
-// Crear una instancia de la aplicación Express
 const app = express();
-const port = 3000; // Puerto en el que correrá el servidor
+const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(bodyParser.json()); // Configura el middleware para parsear JSON en las solicitudes
+app.use(cors());
+app.use(bodyParser.json());
 
-// Conexión a MongoDB Atlas
+// Conexión MongoDB Atlas
 const dbURI = "mongodb+srv://alan:Alan2005@cluster0.aifnqqy.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 mongoose.connect(dbURI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('Conectado a MongoDB Atlas')) // Mensaje si la conexión es exitosa
-  .catch((err) => console.log(err)); // Mensaje si hay un error en la conexión
+  .then(() => console.log('Conectado a MongoDB Atlas'))
+  .catch((err) => console.log(err));
 
-// Definir el esquema de los datos del sensor
+// Esquema y modelo
 const sensorSchema = new mongoose.Schema({
-  temperatura: Number, // Campo para la temperatura, tipo número
-  humedad: Number, // Campo para la humedad, tipo número
-  // timestamp: { type: Date, default: Date.now } // Opcional: Fecha y hora de la lectura
+  temperatura: Number,
+  humedad: Number
 });
 
-// Crear el modelo basado en el esquema
-const SensorData = mongoose.model('DHT11', sensorSchema); // Nombre de la colección: DHT11
+const SensorData = mongoose.model('DHT11', sensorSchema);
 
-// Ruta para recibir datos del ESP32 (API)
+// POST /temperatura - guardar datos
 app.post('/temperatura', (req, res) => {
-  const { temperatura, humedad } = req.body; // Extraer temperatura y humedad del cuerpo de la solicitud
-  console.log("Datos recibidos:", req.body); // Mostrar datos por consola
-
-  const nuevaLectura = new SensorData({ temperatura, humedad }); // Crear nueva entrada
-  nuevaLectura.save() // Guardar en la base de datos
-    .then(data => res.json(data)) // Respuesta con los datos guardados
-    .catch(error => res.status(500).json({ message: error })); // Respuesta en caso de error
+  const { temperatura, humedad } = req.body;
+  const nuevaLectura = new SensorData({ temperatura, humedad });
+  nuevaLectura.save()
+    .then(data => res.json(data))
+    .catch(err => res.status(500).json({ message: err }));
 });
 
-// Iniciar el servidor
+// GET /dht11 - obtener última lectura
+app.get('/dht11', async (req, res) => {
+  try {
+    const ultimaLectura = await SensorData.findOne().sort({ _id: -1 });
+    if (!ultimaLectura) return res.status(404).json({ message: "No hay datos disponibles" });
+    res.json(ultimaLectura);
+  } catch (error) {
+    res.status(500).json({ message: "Error al obtener datos", error });
+  }
+});
+
+// GET /lecturas - todas las lecturas
+app.get('/lecturas', async (req, res) => {
+  try {
+    const lecturas = await SensorData.find().sort({ _id: -1 });
+    res.json(lecturas);
+  } catch (error) {
+    res.status(500).json({ message: "Error al obtener lecturas", error });
+  }
+});
+
+// PUT /lecturas/:id - actualizar por ID
+app.put('/lecturas/:id', async (req, res) => {
+  try {
+    const lecturaActualizada = await SensorData.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!lecturaActualizada) return res.status(404).json({ message: "Lectura no encontrada" });
+    res.json(lecturaActualizada);
+  } catch (error) {
+    res.status(500).json({ message: "Error al actualizar lectura", error });
+  }
+});
+
+// DELETE /lecturas/:id - eliminar por ID
+app.delete('/lecturas/:id', async (req, res) => {
+  try {
+    const resultado = await SensorData.findByIdAndDelete(req.params.id);
+    if (!resultado) return res.status(404).json({ message: "Lectura no encontrada" });
+    res.json({ message: "Lectura eliminada" });
+  } catch (error) {
+    res.status(500).json({ message: "Error al eliminar lectura", error });
+  }
+});
+
+// Iniciar servidor
 app.listen(port, () => {
-  console.log(`Servidor corriendo en http://localhost:${port}`); // Confirmar que el servidor está activo
+  console.log(`Servidor corriendo en http://localhost:${port}`);
 });
